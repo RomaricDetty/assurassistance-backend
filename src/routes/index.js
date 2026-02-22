@@ -3,10 +3,11 @@ const router = express.Router();
 
 // Importer toutes les routes
 const administrateurRoutes = require('../routes/administrateurRoutes');
-
+const clientRoutes = require('../routes/clientRoutes');
 
 // Routes pour les administrateurs
 router.use('/administrateurs', administrateurRoutes);
+router.use('/clients', clientRoutes);
 
 /**
  * @swagger

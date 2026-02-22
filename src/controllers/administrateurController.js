@@ -155,27 +155,39 @@ class AdministrateurController {
     }
 
     /**
-     * Récupérer tous les administrateurs
-     * GET /api/administrateurs
+     * Récupérer tous les administrateurs (paginé, 10 par page par défaut)
+     * GET /api/administrateurs?page=1&limit=10&isActive=true
      */
     static async getAll(req, res) {
         try {
-            const { isActive } = req.query;
+            const { isActive, page = 1, limit = 10 } = req.query;
             const where = {};
 
             if (isActive !== undefined) {
                 where.isActive = isActive === 'true';
             }
 
-            const administrateurs = await Administrateur.findAll({
+            const pageNum = Math.max(1, parseInt(page, 10) || 1);
+            const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
+            const offset = (pageNum - 1) * limitNum;
+
+            const { count, rows: administrateurs } = await Administrateur.findAndCountAll({
                 where,
                 attributes: { exclude: ['password'] },
-                order: [['createdAt', 'DESC']]
+                order: [['createdAt', 'DESC']],
+                limit: limitNum,
+                offset
             });
 
             return res.status(200).json({
                 success: true,
-                data: administrateurs
+                data: administrateurs,
+                meta: {
+                    page: pageNum,
+                    limit: limitNum,
+                    total: count,
+                    totalPages: Math.ceil(count / limitNum)
+                }
             });
         } catch (error) {
             console.error('Erreur lors de la récupération des administrateurs:', error);
@@ -291,6 +303,88 @@ class AdministrateurController {
             return res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la mise à jour de l\'administrateur'
+            });
+        }
+    }
+
+    /**
+     * Récupérer le profil de l'administrateur connecté (via token uniquement)
+     * GET /api/administrateurs/me ou route dédiée
+     */
+    static async getProfileConnected(req, res) {
+        try {
+            const administrateur = req.administrateur;
+
+            return res.status(200).json({
+                success: true,
+                data: administrateur
+            });
+        } catch (error) {
+            console.error('Erreur lors de la récupération du profil connecté:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la récupération du profil connecté'
+            });
+        }
+    }
+
+    /**
+     * Mettre à jour le profil de l'administrateur connecté
+     * PUT /api/administrateurs/me
+     */
+    static async updateProfileConnected(req, res) {
+        try {
+            const { login, password, nom, prenom, email, isActive } = req.body;
+            const administrateur = req.administrateur;
+
+            if (!administrateur) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Administrateur non trouvé'
+                });
+            }
+
+            if (login && login !== administrateur.login) {
+                const existingAdministrateur = await Administrateur.findOne({
+                    where: { login }
+                });
+
+                if (existingAdministrateur) {
+                    return res.status(409).json({
+                        success: false,
+                        message: 'Un administrateur avec ce login existe déjà'
+                    });
+                }
+                administrateur.login = login;
+            }
+
+            if (password) administrateur.password = password;
+            if (nom !== undefined) administrateur.nom = nom;
+            if (prenom !== undefined) administrateur.prenom = prenom;
+            if (email !== undefined) administrateur.email = email;
+            if (isActive !== undefined) administrateur.isActive = isActive;
+
+            await administrateur.save();
+
+            return res.status(200).json({
+                success: true,
+                message: 'Profil connecté mis à jour avec succès',
+                data: administrateur
+            });
+        } catch (error) {
+            console.error('Erreur lors de la mise à jour du profil connecté:', error);
+
+            if (error.name === 'SequelizeValidationError') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Erreur de validation',
+                    errors: error.errors.map(err => err.message)
+                });
+            }
+
+            return res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la mise à jour du profil connecté'
             });
         }
     }

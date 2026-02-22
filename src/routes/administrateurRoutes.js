@@ -121,7 +121,7 @@ router.post('/', authenticate, AdministrateurController.create);
  * @swagger
  * /administrateurs:
  *   get:
- *     summary: Récupérer tous les administrateurs
+ *     summary: Récupérer tous les administrateurs (paginé)
  *     tags: [Administrateurs]
  *     security:
  *       - bearerAuth: []
@@ -131,6 +131,18 @@ router.post('/', authenticate, AdministrateurController.create);
  *         schema:
  *           type: boolean
  *         description: Filtrer par statut actif
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Numéro de page
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Nombre d'éléments par page (max 100)
  *     responses:
  *       200:
  *         description: Liste des administrateurs
@@ -147,6 +159,89 @@ router.post('/', authenticate, AdministrateurController.create);
  *                         $ref: '#/components/schemas/Admin'
  */
 router.get('/', authenticate, AdministrateurController.getAll);
+
+/**
+ * @swagger
+ * /administrateurs/me:
+ *   get:
+ *     summary: Récupérer le profil de l'administrateur connecté (token uniquement)
+ *     tags: [Administrateurs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Profil de l'administrateur connecté
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       $ref: '#/components/schemas/Admin'
+ *       401:
+ *         description: Token manquant ou invalide
+ */
+router.get('/me', authenticate, AdministrateurController.getProfileConnected);
+
+/**
+ * @swagger
+ * /administrateurs/me:
+ *   put:
+ *     summary: Mettre à jour le profil de l'administrateur connecté (token uniquement)
+ *     tags: [Administrateurs]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               login:
+ *                 type: string
+ *                 minLength: 3
+ *                 maxLength: 100
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *               nom:
+ *                 type: string
+ *               prenom:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               isActive:
+ *                 type: boolean
+ *                 default: true
+ *     responses:
+ *       200:
+ *         description: Profil de l'administrateur connecté mis à jour avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       $ref: '#/components/schemas/Admin'
+ *       400:
+ *         description: Erreur de validation
+ *       404:
+ *         description: Administrateur non trouvé
+ *       409:
+ *         description: Login déjà existant
+ *       401:
+ *         description: Token manquant ou invalide
+ *       403:
+ *         description: Compte administrateur désactivé
+ */
+router.put('/me', authenticate, AdministrateurController.updateProfileConnected);
 
 /**
  * @swagger

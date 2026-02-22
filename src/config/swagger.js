@@ -66,6 +66,32 @@ const swaggerOptions = {
                             }
                         }
                     }
+                },
+                Admin: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        login: { type: 'string' },
+                        nom: { type: 'string' },
+                        prenom: { type: 'string' },
+                        email: { type: 'string', format: 'email' },
+                        isActive: { type: 'boolean' },
+                        lastLogin: { type: 'string', format: 'date-time' },
+                        createdAt: { type: 'string', format: 'date-time' },
+                        updatedAt: { type: 'string', format: 'date-time' }
+                    }
+                },
+                Client: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        nomClient: { type: 'string' },
+                        prenomClient: { type: 'string' },
+                        idCarteBancaire: { type: 'string' },
+                        typeContrat: { type: 'string' },
+                        createdAt: { type: 'string', format: 'date-time' },
+                        updatedAt: { type: 'string', format: 'date-time' }
+                    }
                 }
             },
             securitySchemes: {
@@ -86,8 +112,36 @@ const swaggerOptions = {
                 description: 'Gestion des administrateurs de l\'API'
             },
             {
+                name: 'Clients',
+                description: 'Gestion des clients de l\'API'
+            },
+            {
                 name: '404 Error',
                 description: 'Route non trouvée'
+            },
+            {
+                name: '401 Error',
+                description: 'Erreur d\'authentification'
+            },
+            {
+                name: '403 Error',
+                description: 'Erreur d\'autorisation'
+            },
+            {
+                name: '400 Error',
+                description: 'Erreur de validation'
+            },
+            {
+                name: '409 Error',
+                description: 'Erreur de conflit'
+            },
+            {
+                name: '500 Error',
+                description: 'Erreur interne du serveur'
+            },
+            {
+                name: '200 Success',
+                description: 'Opération réussie'
             }
         ]
     },

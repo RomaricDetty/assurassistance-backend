@@ -83,21 +83,27 @@ npm run dev
 
 - `GET /` — Message de bienvenue et liens utiles
 - `GET /api/health-check` — État de santé de l'API
-- `/api/administrateurs` — CRUD administrateurs (login, profil, etc.)
+- **Administrateurs** : `POST /api/administrateurs/login`, `GET /api/administrateurs/me` (profil via token), CRUD avec pagination (`page`, `limit`, défaut 10/page)
+- **Clients** : CRUD avec pagination ; `typeContrat` : Business, Platinum ou Premier
 
 Les détails complets sont dans la doc Swagger (`/api-docs`).
+
+## Collection Postman
+
+Importer `postman/AssurAssistance-API.postman_collection.json` pour tester les APIs. Exécuter **Login** en premier pour enregistrer le token ; les requêtes Administrateurs et Clients utilisent l'auth Bearer automatiquement.
 
 ## Structure du projet
 
 ```
-src/
-├── config/         # database, swagger
-├── controllers/    # logique métier
-├── middleware/     # auth, validation
-├── models/         # modèles Sequelize
-├── routes/         # routes Express
-├── scripts/        # createDatabase, seedDatabase
-└── server.js       # point d'entrée
+├── postman/        # Collection Postman (AssurAssistance-API)
+├── src/
+│   ├── config/     # database, swagger
+│   ├── controllers/
+│   ├── middleware/
+│   ├── models/     # Administrateur, Client
+│   ├── routes/
+│   ├── scripts/    # createDatabase, seedDatabase
+│   └── server.js
 ```
 
 ## Auteur

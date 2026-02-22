@@ -1,5 +1,6 @@
 const sequelize = require('../config/database');
 const Administrateur = require('./Administrateur');
+const Client = require('./Client');
 
 /**
  * Fichier central pour exporter tous les modèles
@@ -8,6 +9,7 @@ const Administrateur = require('./Administrateur');
 
 const models = {
     Administrateur,
+    Client,
 };
 
 /**

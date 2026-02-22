@@ -25,8 +25,11 @@ if (process.env.NODE_ENV === 'development') {
     });
 }
 
-// Configuration Swagger
+// Configuration Swagger (swaggerOptions.persistAuthorization pour garder le token après actualisation)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    swaggerOptions: {
+        persistAuthorization: true
+    },
     customCss: '.swagger-ui .topbar { display: none }',
     customSiteTitle: 'API Assur\'Assistance - Documentation',
     customfavIcon: '/favicon.ico'
