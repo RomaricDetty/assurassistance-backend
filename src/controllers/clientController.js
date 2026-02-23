@@ -28,15 +28,27 @@ class ClientController {
                 });
             }
 
-            // Vérifier si l'ID de la carte bancaire existe déjà
+            // Vérifier si l'ID de la carte bancaire existe déjà (actif ou soft-deleted)
             const existingClient = await Client.findOne({
-                where: { idCarteBancaire }
+                where: { idCarteBancaire },
+                paranoid: false
             });
 
             if (existingClient) {
-                return res.status(409).json({
-                    success: false,
-                    message: 'Un client avec cet ID de carte bancaire existe déjà'
+                if (existingClient.deletedAt === null) {
+                    return res.status(409).json({
+                        success: false,
+                        message: 'Un client avec cet ID de carte bancaire existe déjà'
+                    });
+                }
+                // Client soft-deleted : restore() remet deletedAt à null (méthode Sequelize paranoid)
+                await existingClient.restore();
+                existingClient.set({ nomClient, prenomClient, typeContrat });
+                await existingClient.save();
+                return res.status(200).json({
+                    success: true,
+                    message: 'Client cree créé succès',
+                    data: existingClient
                 });
             }
 
