@@ -1,4 +1,5 @@
 const swaggerJsdoc = require('swagger-jsdoc');
+require('dotenv').config();
 
 /**
  * Configuration Swagger pour documenter toutes les APIs
@@ -21,13 +22,13 @@ const swaggerOptions = {
         },
         servers: [
             {
-                url: 'http://localhost:3000/api',
+                url: process.env.SWAGGER_URL_DEV,
                 description: 'Serveur de développement'
             },
-            // {
-            //     url: 'http://5.182.17.192:6981/api',
-            //     description: 'Serveur VPS de production'
-            // }
+            {
+                url: process.env.SWAGGER_URL_PROD,
+                description: 'Serveur VPS de production'
+            }
         ],
         components: {
             schemas: {
