@@ -54,7 +54,43 @@ const authenticate = require('../middleware/auth');
  *       403:
  *         description: Accès refusé
  */
- router.post('/', authenticate, ClientController.create);   
+ router.post('/', authenticate, ClientController.create);
+
+/**
+ * @swagger
+ * /clients/bulk:
+ *   post:
+ *     summary: Créer plusieurs clients en une requête
+ *     tags: [Clients]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [clients]
+ *             properties:
+ *               clients:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [nomClient, prenomClient, idCarteBancaire, typeContrat]
+ *                   properties:
+ *                     nomClient: { type: string }
+ *                     prenomClient: { type: string }
+ *                     idCarteBancaire: { type: string }
+ *                     typeContrat: { type: string, enum: [Business, Platinum, Premier] }
+ *     responses:
+ *       201:
+ *         description: Import terminé (créés + réactivés), meta.conflicts si doublons actifs
+ *       400:
+ *         description: Tableau vide ou champ manquant / typeContrat invalide
+ *       401:
+ *         description: Token manquant ou invalide
+ */
+ router.post('/bulk', authenticate, ClientController.createMany);
 
 
  /**

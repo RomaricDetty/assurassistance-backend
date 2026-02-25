@@ -12,10 +12,11 @@ const seedDatabase = require('./scripts/seedDatabase');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// Middleware (limite body augmentée pour import en masse de clients, ex. POST /api/clients/bulk)
+const jsonLimit = process.env.BODY_JSON_LIMIT || '15mb';
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: jsonLimit }));
+app.use(express.urlencoded({ extended: true, limit: jsonLimit }));
 
 // Middleware pour logger les requêtes (en développement)
 if (process.env.NODE_ENV === 'development') {

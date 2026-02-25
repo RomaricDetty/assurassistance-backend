@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const { Client } = require('../models');
 
 /**
@@ -47,7 +48,7 @@ class ClientController {
                 await existingClient.save();
                 return res.status(200).json({
                     success: true,
-                    message: 'Client cree créé succès',
+                    message: 'Client réactivé avec succès',
                     data: existingClient
                 });
             }
@@ -72,6 +73,140 @@ class ClientController {
                 success: false,
                 message: 'Erreur lors de la création du client',
                 errors: error.errors.map(err => err.message)
+            });
+        }
+    }
+
+    /** Nombre max de clients par requête bulk (évite timeouts et surcharge) */
+    static get BULK_MAX() { return 2000; }
+
+    /**
+     * Créer plusieurs clients en une requête (même logique que create : restauration si soft-deleted).
+     * Les tableaux trop gros sont découpés en paquets de BULK_MAX et traités séquentiellement.
+     * POST /api/clients/bulk
+     * Body: { "clients": [ { nomClient, prenomClient, idCarteBancaire, typeContrat }, ... ] }
+     */
+    static async createMany(req, res) {
+        try {
+            const clients = req.body;
+            const TYPES_CONTRAT = ['Business', 'Platinum', 'Premier'];
+
+            if (!Array.isArray(clients) || clients.length === 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Le body doit contenir un tableau "clients" non vide',
+                    reqBody: req.body
+                });
+            }
+
+            // Validation de toutes les lignes avant tout enregistrement
+            for (const c of clients) {
+                const { nomClient, prenomClient, idCarteBancaire, typeContrat } = c;
+                if (!nomClient || !prenomClient || !idCarteBancaire || !typeContrat) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Chaque client doit avoir nomClient, prenomClient, idCarteBancaire et typeContrat'
+                    });
+                }
+                if (!TYPES_CONTRAT.includes(typeContrat)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `typeContrat invalide pour ${idCarteBancaire}: doit être Business, Platinum ou Premier`
+                    });
+                }
+            }
+
+            const allCreated = [];
+            const allReactivated = [];
+            const allConflicts = [];
+            const max = ClientController.BULK_MAX;
+
+            for (let i = 0; i < clients.length; i += max) {
+                const chunk = clients.slice(i, i + max);
+                const ids = chunk.map(c => c.idCarteBancaire);
+
+                // Une seule requête par paquet au lieu de N findOne
+                const existingList = await Client.findAll({
+                    where: { idCarteBancaire: { [Op.in]: ids } },
+                    paranoid: false
+                });
+                const byCard = new Map(existingList.map(e => [e.idCarteBancaire, e]));
+
+                const created = [];
+                const reactivated = [];
+                const conflicts = [];
+                const seenInChunk = new Set();
+
+                const toReactivate = [];
+
+                for (const c of chunk) {
+                    const { nomClient, prenomClient, idCarteBancaire, typeContrat } = c;
+                    if (seenInChunk.has(idCarteBancaire)) {
+                        conflicts.push({ idCarteBancaire, reason: 'Doublon dans le lot' });
+                        continue;
+                    }
+                    seenInChunk.add(idCarteBancaire);
+
+                    const existing = byCard.get(idCarteBancaire);
+
+                    if (existing) {
+                        if (existing.deletedAt !== null) {
+                            existing.set({ nomClient, prenomClient, typeContrat });
+                            toReactivate.push(existing);
+                        } else {
+                            conflicts.push({ idCarteBancaire, reason: 'Déjà existant' });
+                        }
+                    } else {
+                        created.push({ nomClient, prenomClient, idCarteBancaire, typeContrat });
+                    }
+                }
+
+                // Réactivations en parallèle par lots (évite N await séquentiels)
+                const RESTORE_BATCH = 50;
+                for (let r = 0; r < toReactivate.length; r += RESTORE_BATCH) {
+                    const batch = toReactivate.slice(r, r + RESTORE_BATCH);
+                    await Promise.all(batch.map(async (inst) => {
+                        await inst.restore();
+                        await inst.save();
+                    }));
+                    reactivated.push(...batch);
+                }
+
+                const createdRecords = created.length > 0 ? await Client.bulkCreate(created) : [];
+                allCreated.push(...createdRecords);
+                allReactivated.push(...reactivated);
+                allConflicts.push(...conflicts);
+            }
+
+            const totalCreated = allCreated.length;
+            const totalReactivated = allReactivated.length;
+            const totalConflicts = allConflicts.length;
+            const MAX_RETURNED = 1000;
+            const truncate = totalCreated + totalReactivated > MAX_RETURNED;
+
+            return res.status(201).json({
+                success: true,
+                message: 'Import terminé',
+                data: truncate
+                    ? undefined
+                    : {
+                        created: allCreated,
+                        reactivated: allReactivated
+                    },
+                meta: {
+                    totalCreated,
+                    totalReactivated,
+                    conflictsCount: totalConflicts,
+                    conflicts: totalConflicts > 0 ? allConflicts : undefined,
+                    ...(truncate && { dataTruncated: true, messageDetail: `Plus de ${MAX_RETURNED} enregistrements : seuls les totaux sont renvoyés.` })
+                }
+            });
+        } catch (error) {
+            console.error('Erreur lors de la création des clients:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Erreur lors de la création des clients',
+                errors: Array.isArray(error.errors) ? error.errors.map(e => e.message) : [error.message]
             });
         }
     }
