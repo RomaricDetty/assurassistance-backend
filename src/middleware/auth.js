@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
-const { Administrateur } = require('../models');
+const { Administrateur, GroupeAdmin, Partenaire } = require('../models');
+const { getEffectiveInterfaceLinks } = require('../constants/interfaceLinks');
 
 /**
  * Middleware d'authentification par Bearer token
@@ -34,7 +35,14 @@ const authenticate = async (req, res, next) => {
 
         // Récupérer l'administrateur depuis la base de données
         const administrateur = await Administrateur.findByPk(decoded.id, {
-            attributes: { exclude: ['password'] }
+            attributes: { exclude: ['password'] },
+            include: [
+                {
+                    model: GroupeAdmin,
+                    as: 'groupe',
+                    include: [{ model: Partenaire, as: 'partenaire' }]
+                }
+            ]
         });
 
         if (!administrateur) {
@@ -50,6 +58,55 @@ const authenticate = async (req, res, next) => {
                 success: false,
                 message: 'Compte administrateur désactivé'
             });
+        }
+
+        const now = new Date();
+        const role = administrateur.role || 'SUPER_ADMIN';
+        administrateur.role = role;
+        administrateur.interfaceLinks = getEffectiveInterfaceLinks(role, administrateur.interfaceLinks);
+        if (administrateur.userValidFrom && now < administrateur.userValidFrom) {
+            return res.status(403).json({
+                success: false,
+                message: 'Compte utilisateur pas encore valide'
+            });
+        }
+        if (administrateur.userValidTo && now > administrateur.userValidTo) {
+            return res.status(403).json({
+                success: false,
+                message: 'Période de validité du compte expirée'
+            });
+        }
+        if (role === 'AGENT') {
+            if (!administrateur.groupe) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Aucun groupe associé à ce compte agent'
+                });
+            }
+            if (!administrateur.groupe.isActive) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Le groupe de cet agent est désactivé'
+                });
+            }
+            if (administrateur.groupe.validFrom && now < administrateur.groupe.validFrom) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Période de validité du groupe non démarrée'
+                });
+            }
+            if (administrateur.groupe.validTo && now > administrateur.groupe.validTo) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Période de validité du groupe expirée'
+                });
+            }
+            if (administrateur.groupe.partenaire && !administrateur.groupe.partenaire.isActive) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Le partenaire rattaché au groupe est désactivé'
+                });
+            }
         }
 
         // Ajouter l'admin à la requête pour utilisation dans les controllers

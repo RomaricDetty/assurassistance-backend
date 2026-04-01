@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 const bcrypt = require('bcrypt');
+const { DEFAULT_SUPER_ADMIN_LINKS, normalizeInterfaceLinks } = require('../constants/interfaceLinks');
 
 /**
  * Modèle Administrateur
@@ -16,7 +17,6 @@ const Administrateur = sequelize.define('Administrateur', {
     login: {
         type: DataTypes.STRING(100),
         allowNull: false,
-        unique: true,
         validate: {
             notEmpty: {
                 msg: 'Le login ne peut pas être vide'
@@ -57,6 +57,28 @@ const Administrateur = sequelize.define('Administrateur', {
             }
         }
     },
+    role: {
+        type: DataTypes.ENUM('SUPER_ADMIN', 'AGENT'),
+        allowNull: false,
+        defaultValue: 'SUPER_ADMIN'
+    },
+    groupeId: {
+        type: DataTypes.UUID,
+        allowNull: true
+    },
+    userValidFrom: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    userValidTo: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    interfaceLinks: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: []
+    },
     isActive: {
         type: DataTypes.BOOLEAN,
         defaultValue: true,
@@ -80,9 +102,23 @@ const Administrateur = sequelize.define('Administrateur', {
         },
         {
             fields: ['isActive']
+        },
+        {
+            fields: ['role']
+        },
+        {
+            fields: ['groupeId']
         }
     ],
     hooks: {
+        beforeValidate: (administrateur) => {
+            const role = administrateur.role || 'SUPER_ADMIN';
+            if (role === 'SUPER_ADMIN') {
+                administrateur.interfaceLinks = DEFAULT_SUPER_ADMIN_LINKS;
+            } else {
+                administrateur.interfaceLinks = normalizeInterfaceLinks(administrateur.interfaceLinks);
+            }
+        },
         beforeCreate: async (administrateur) => {
             if (administrateur.password) {
                 administrateur.password = await bcrypt.hash(administrateur.password, 10);

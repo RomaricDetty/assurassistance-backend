@@ -117,6 +117,14 @@ const swaggerOptions = {
                 description: 'Gestion des clients de l\'API'
             },
             {
+                name: 'Partenaires',
+                description: 'Gestion des partenaires'
+            },
+            {
+                name: 'GroupesAdmin',
+                description: 'Gestion des groupes d\'agents et cartes autorisées'
+            },
+            {
                 name: '404 Error',
                 description: 'Route non trouvée'
             },

@@ -1,6 +1,7 @@
-const { Administrateur } = require('../models');
+const { Administrateur, GroupeAdmin } = require('../models');
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
+const { getEffectiveInterfaceLinks, normalizeInterfaceLinks } = require('../constants/interfaceLinks');
 
 /**
  * Controller pour la gestion des administrateurs
@@ -42,6 +43,21 @@ class AdministrateurController {
                 });
             }
 
+            // Vérifier la période de validité du compte utilisateur
+            const now = new Date();
+            if (administrateur.userValidFrom && now < administrateur.userValidFrom) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Compte pas encore valide (date de début non atteinte)'
+                });
+            }
+            if (administrateur.userValidTo && now > administrateur.userValidTo) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Compte expiré (date de fin dépassée)'
+                });
+            }
+
             // Vérifier le mot de passe
             const isPasswordValid = await administrateur.comparePassword(password);
             if (!isPasswordValid) {
@@ -62,7 +78,9 @@ class AdministrateurController {
             const token = jwt.sign(
                 { 
                     id: administrateur.id,
-                    login: administrateur.login
+                    login: administrateur.login,
+                    role: administrateur.role || 'SUPER_ADMIN',
+                    groupeId: administrateur.groupeId || null
                 },
                 JWT_SECRET,
                 { expiresIn: JWT_EXPIRES_IN }
@@ -79,6 +97,9 @@ class AdministrateurController {
                         nom: administrateur.nom,
                         prenom: administrateur.prenom,
                         email: administrateur.email,
+                        role: administrateur.role || 'SUPER_ADMIN',
+                        groupeId: administrateur.groupeId,
+                        interfaceLinks: getEffectiveInterfaceLinks(administrateur.role || 'SUPER_ADMIN', administrateur.interfaceLinks),
                         isActive: administrateur.isActive,
                         lastLogin: administrateur.lastLogin
                     }
@@ -99,7 +120,19 @@ class AdministrateurController {
      */
     static async create(req, res) {
         try {
-            const { login, password, nom, prenom, email, isActive } = req.body;
+            const {
+                login,
+                password,
+                nom,
+                prenom,
+                email,
+                isActive,
+                role = 'SUPER_ADMIN',
+                groupeId = null,
+                userValidFrom = null,
+                userValidTo = null,
+                interfaceLinks = []
+            } = req.body;
 
             // Validation des données requises
             if (!login || !password) {
@@ -121,6 +154,19 @@ class AdministrateurController {
                 });
             }
 
+            if (!['SUPER_ADMIN', 'AGENT'].includes(role)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'role invalide (SUPER_ADMIN ou AGENT)'
+                });
+            }
+            if (role === 'AGENT' && !groupeId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'groupeId est requis pour un AGENT'
+                });
+            }
+
             // Créer l'administrateur
             const administrateur = await Administrateur.create({
                 login,
@@ -128,7 +174,12 @@ class AdministrateurController {
                 nom: nom || null,
                 prenom: prenom || null,
                 email: email || null,
-                isActive: isActive !== undefined ? isActive : true
+                isActive: isActive !== undefined ? isActive : true,
+                role,
+                groupeId,
+                userValidFrom,
+                userValidTo,
+                interfaceLinks: role === 'SUPER_ADMIN' ? getEffectiveInterfaceLinks('SUPER_ADMIN', []) : normalizeInterfaceLinks(interfaceLinks)
             });
 
             return res.status(201).json({
@@ -171,12 +222,27 @@ class AdministrateurController {
             const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 10));
             const offset = (pageNum - 1) * limitNum;
 
-            const { count, rows: administrateurs } = await Administrateur.findAndCountAll({
+            const { count, rows } = await Administrateur.findAndCountAll({
                 where,
                 attributes: { exclude: ['password'] },
+                include: [
+                    {
+                        model: GroupeAdmin,
+                        as: 'groupe',
+                        attributes: ['id', 'nom']
+                    }
+                ],
                 order: [['createdAt', 'DESC']],
                 limit: limitNum,
                 offset
+            });
+            const administrateurs = rows.map((admin) => {
+                const item = admin.toJSON();
+                const groupName = item.groupe?.nom || null;
+                item.groupName = groupName;
+                item.groupeNom = groupName;
+                item.group_name = groupName;
+                return item;
             });
 
             return res.status(200).json({
@@ -237,7 +303,7 @@ class AdministrateurController {
     static async update(req, res) {
         try {
             const { id } = req.params;
-            const { login, password, nom, prenom, email, isActive } = req.body;
+            const { login, password, nom, prenom, email, isActive, role, groupeId, userValidFrom, userValidTo, interfaceLinks } = req.body;
 
             const administrateur = await Administrateur.findByPk(id);
 
@@ -272,6 +338,24 @@ class AdministrateurController {
             if (prenom !== undefined) administrateur.prenom = prenom;
             if (email !== undefined) administrateur.email = email;
             if (isActive !== undefined) administrateur.isActive = isActive;
+            if (role !== undefined) {
+                if (!['SUPER_ADMIN', 'AGENT'].includes(role)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'role invalide (SUPER_ADMIN ou AGENT)'
+                    });
+                }
+                administrateur.role = role;
+            }
+            if (groupeId !== undefined) administrateur.groupeId = groupeId;
+            if (userValidFrom !== undefined) administrateur.userValidFrom = userValidFrom;
+            if (userValidTo !== undefined) administrateur.userValidTo = userValidTo;
+            if (interfaceLinks !== undefined) {
+                const currentRole = administrateur.role || 'SUPER_ADMIN';
+                administrateur.interfaceLinks = currentRole === 'SUPER_ADMIN'
+                    ? getEffectiveInterfaceLinks('SUPER_ADMIN', [])
+                    : normalizeInterfaceLinks(interfaceLinks);
+            }
 
             await administrateur.save();
 
@@ -284,6 +368,9 @@ class AdministrateurController {
                     nom: administrateur.nom,
                     prenom: administrateur.prenom,
                     email: administrateur.email,
+                    role: administrateur.role,
+                    groupeId: administrateur.groupeId,
+                    interfaceLinks: getEffectiveInterfaceLinks(administrateur.role || 'SUPER_ADMIN', administrateur.interfaceLinks),
                     isActive: administrateur.isActive,
                     lastLogin: administrateur.lastLogin,
                     updatedAt: administrateur.updatedAt
@@ -313,7 +400,8 @@ class AdministrateurController {
      */
     static async getProfileConnected(req, res) {
         try {
-            const administrateur = req.administrateur;
+            const administrateur = req.administrateur.toJSON ? req.administrateur.toJSON() : req.administrateur;
+            administrateur.interfaceLinks = getEffectiveInterfaceLinks(administrateur.role || 'SUPER_ADMIN', administrateur.interfaceLinks);
 
             return res.status(200).json({
                 success: true,

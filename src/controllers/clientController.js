@@ -1,10 +1,30 @@
 const { Op } = require('sequelize');
-const { Client } = require('../models');
+const { Client, CarteAutorisee } = require('../models');
 
 /**
  * Controller pour la gestion des clients
  */
 class ClientController {
+    /**
+     * Vérifie qu'un agent a le droit d'utiliser un numéro de carte.
+     */
+    static async isCardAllowedForAgent(administrateur, numeroCarte) {
+        if (!administrateur || (administrateur.role || 'SUPER_ADMIN') !== 'AGENT') {
+            return true;
+        }
+        if (!administrateur.groupeId) {
+            return false;
+        }
+        const carte = await CarteAutorisee.findOne({
+            where: {
+                groupeId: administrateur.groupeId,
+                numeroCarte,
+                isActive: true
+            }
+        });
+        return !!carte;
+    }
+
     /**
      * Créer un nouveau client
      * POST /api/clients
@@ -26,6 +46,14 @@ class ClientController {
                 return res.status(400).json({
                     success: false,
                     message: 'Le type de contrat doit être Business, Platinum ou Premier'
+                });
+            }
+
+            const allowed = await ClientController.isCardAllowedForAgent(req.administrateur, idCarteBancaire);
+            if (!allowed) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Vous n\'avez pas le droit d\'enregistrer ce client: numéro de carte non autorisé pour votre groupe'
                 });
             }
 
@@ -88,7 +116,7 @@ class ClientController {
      */
     static async createMany(req, res) {
         try {
-            const clients = req.body;
+            const clients = Array.isArray(req.body) ? req.body : req.body?.clients;
             const TYPES_CONTRAT = ['Business', 'Platinum', 'Premier'];
 
             if (!Array.isArray(clients) || clients.length === 0) {
@@ -112,6 +140,33 @@ class ClientController {
                     return res.status(400).json({
                         success: false,
                         message: `typeContrat invalide pour ${idCarteBancaire}: doit être Business, Platinum ou Premier`
+                    });
+                }
+            }
+
+            if ((req.administrateur?.role || 'SUPER_ADMIN') === 'AGENT') {
+                const groupId = req.administrateur.groupeId;
+                if (!groupId) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Aucun groupe associé à cet agent'
+                    });
+                }
+                const cardIds = [...new Set(clients.map(c => c.idCarteBancaire))];
+                const allowedCards = await CarteAutorisee.findAll({
+                    where: {
+                        groupeId: groupId,
+                        isActive: true,
+                        numeroCarte: { [Op.in]: cardIds }
+                    }
+                });
+                const allowedSet = new Set(allowedCards.map(c => c.numeroCarte));
+                const unauthorized = cardIds.filter(c => !allowedSet.has(c));
+                if (unauthorized.length > 0) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Certains numéros de carte ne sont pas autorisés pour votre groupe',
+                        unauthorizedCards: unauthorized.slice(0, 50)
                     });
                 }
             }

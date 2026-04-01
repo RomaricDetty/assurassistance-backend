@@ -4,10 +4,14 @@ const router = express.Router();
 // Importer toutes les routes
 const administrateurRoutes = require('../routes/administrateurRoutes');
 const clientRoutes = require('../routes/clientRoutes');
+const partenaireRoutes = require('../routes/partenaireRoutes');
+const groupeAdminRoutes = require('../routes/groupeAdminRoutes');
 
 // Routes pour les administrateurs
 router.use('/administrateurs', administrateurRoutes);
 router.use('/clients', clientRoutes);
+router.use('/partenaires', partenaireRoutes);
+router.use('/groupes-admin', groupeAdminRoutes);
 
 /**
  * @swagger
