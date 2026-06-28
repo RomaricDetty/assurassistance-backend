@@ -28,7 +28,7 @@ const authenticate = require('../middleware/auth');
  *               - nomClient
  *               - prenomClient
  *               - idCarteBancaire
- *               - typeContrat
+ *               - typeContratId
  *             properties:
  *               nomClient:
  *                 type: string
@@ -39,8 +39,12 @@ const authenticate = require('../middleware/auth');
  *               idCarteBancaire:
  *                 type: string
  *                 example: 1234567890
+ *               typeContratId:
+ *                 type: string
+ *                 format: uuid
  *               typeContrat:
  *                 type: string
+ *                 description: Code legacy (Business, Platinum, Premier)
  *                 example: Business
  *     responses:
  *       201:
@@ -76,12 +80,13 @@ const authenticate = require('../middleware/auth');
  *                 type: array
  *                 items:
  *                   type: object
- *                   required: [nomClient, prenomClient, idCarteBancaire, typeContrat]
+ *                   required: [nomClient, prenomClient, idCarteBancaire]
  *                   properties:
  *                     nomClient: { type: string }
  *                     prenomClient: { type: string }
  *                     idCarteBancaire: { type: string }
- *                     typeContrat: { type: string, enum: [Business, Platinum, Premier] }
+ *                     typeContratId: { type: string, format: uuid }
+ *                     typeContrat: { type: string, description: Code legacy }
  *     responses:
  *       201:
  *         description: Import terminé (créés + réactivés), meta.conflicts si doublons actifs

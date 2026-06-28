@@ -6,12 +6,16 @@ const administrateurRoutes = require('../routes/administrateurRoutes');
 const clientRoutes = require('../routes/clientRoutes');
 const partenaireRoutes = require('../routes/partenaireRoutes');
 const groupeAdminRoutes = require('../routes/groupeAdminRoutes');
+const groupePartnerRoutes = require('../routes/groupePartnerRoutes');
+const typeContratRoutes = require('../routes/typeContratRoutes');
 
 // Routes pour les administrateurs
 router.use('/administrateurs', administrateurRoutes);
 router.use('/clients', clientRoutes);
 router.use('/partenaires', partenaireRoutes);
+router.use('/types-contrat', typeContratRoutes);
 router.use('/groupes-admin', groupeAdminRoutes);
+router.use('/groupes-partner', groupePartnerRoutes);
 
 /**
  * @swagger

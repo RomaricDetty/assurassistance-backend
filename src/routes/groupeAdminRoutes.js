@@ -175,4 +175,58 @@ router.get('/:id/cartes', GroupeAdminController.getCards);
  */
 router.post('/:id/agents', GroupeAdminController.createAgent);
 
+/**
+ * @swagger
+ * /groupes-admin/{id}/types-contrat:
+ *   get:
+ *     summary: Lister les types de contrat autorisés pour un groupe
+ *     tags: [GroupesAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Liste des types de contrat
+ */
+router.get('/:id/types-contrat', GroupeAdminController.getTypesContrat);
+
+/**
+ * @swagger
+ * /groupes-admin/{id}/types-contrat:
+ *   put:
+ *     summary: Définir les types de contrat autorisés pour un groupe
+ *     tags: [GroupesAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               typeContratIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uuid
+ *                 description: Tableau vide = tous les types actifs autorisés
+ *     responses:
+ *       200:
+ *         description: Types de contrat mis à jour
+ */
+router.put('/:id/types-contrat', GroupeAdminController.setTypesContrat);
+
 module.exports = router;

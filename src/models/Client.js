@@ -35,15 +35,9 @@ const Client = sequelize.define('Client', {
             }
         }
     },
-    typeContrat: {
-        type: DataTypes.ENUM('Business', 'Platinum', 'Premier'),
-        allowNull: false,
-        validate: {
-            isIn: {
-                args: [['Business', 'Platinum', 'Premier']],
-                msg: 'Le type de contrat doit être Business, Platinum ou Premier'
-            }
-        }
+    typeContratId: {
+        type: DataTypes.UUID,
+        allowNull: false
     }
 }, {
     tableName: 'clients',
@@ -53,6 +47,9 @@ const Client = sequelize.define('Client', {
         {
             unique: true,
             fields: ['idCarteBancaire']
+        },
+        {
+            fields: ['typeContratId']
         }
     ]
 });

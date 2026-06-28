@@ -1,10 +1,66 @@
 const { Op } = require('sequelize');
-const { Client, CarteAutorisee } = require('../models');
+const { Client, CarteAutorisee, TypeContrat } = require('../models');
+const TypeContratHelper = require('../utils/typeContratHelper');
 
 /**
  * Controller pour la gestion des clients
  */
 class ClientController {
+    /**
+     * Include Sequelize pour le type de contrat associé.
+     */
+    static get typeContratInclude() {
+        return {
+            model: TypeContrat,
+            as: 'typeContrat',
+            attributes: ['id', 'code', 'libelle', 'pdfPath', 'pdfFileName', 'isActive']
+        };
+    }
+
+    /**
+     * Formate un client pour la réponse API.
+     */
+    static formatClient(client) {
+        if (!client) return client;
+        const plain = client.toJSON ? client.toJSON() : { ...client };
+        if (plain.typeContrat) {
+            plain.typeContrat = TypeContratHelper.formatTypeContrat(plain.typeContrat);
+            plain.typeContratCode = plain.typeContrat.code;
+        }
+        return plain;
+    }
+
+    /**
+     * Résout et valide le type de contrat depuis le body (typeContratId ou code legacy typeContrat).
+     */
+    static async resolveAndValidateTypeContrat(body, administrateur) {
+        const { typeContratId, typeContrat: typeContratCode } = body;
+        if (!typeContratId && !typeContratCode) {
+            return { error: { status: 400, message: 'typeContratId (ou typeContrat/code) est requis' } };
+        }
+
+        const typeContrat = await TypeContratHelper.resolveTypeContratId({
+            typeContratId,
+            code: typeContratCode
+        });
+
+        if (!typeContrat) {
+            return { error: { status: 400, message: 'Type de contrat invalide ou inactif' } };
+        }
+
+        const allowed = await TypeContratHelper.isTypeAllowedForAgent(administrateur, typeContrat.id);
+        if (!allowed) {
+            return {
+                error: {
+                    status: 403,
+                    message: 'Ce type de contrat n\'est pas autorisé pour votre groupe'
+                }
+            };
+        }
+
+        return { typeContratId: typeContrat.id, typeContrat };
+    }
+
     /**
      * Vérifie qu'un agent a le droit d'utiliser un numéro de carte.
      */
@@ -31,21 +87,20 @@ class ClientController {
      */
     static async create(req, res) {
         try {
-            const { nomClient, prenomClient, idCarteBancaire, typeContrat } = req.body;
+            const { nomClient, prenomClient, idCarteBancaire } = req.body;
 
-            // Validation des données requises
-            if (!nomClient || !prenomClient || !idCarteBancaire || !typeContrat) {
+            if (!nomClient || !prenomClient || !idCarteBancaire) {
                 return res.status(400).json({
                     success: false,
                     message: 'Les données requises sont manquantes'
                 });
             }
 
-            // Vérifier si le type de contrat est valide
-            if (!['Business', 'Platinum', 'Premier'].includes(typeContrat)) {
-                return res.status(400).json({
+            const typeResult = await ClientController.resolveAndValidateTypeContrat(req.body, req.administrateur);
+            if (typeResult.error) {
+                return res.status(typeResult.error.status).json({
                     success: false,
-                    message: 'Le type de contrat doit être Business, Platinum ou Premier'
+                    message: typeResult.error.message
                 });
             }
 
@@ -57,7 +112,6 @@ class ClientController {
                 });
             }
 
-            // Vérifier si l'ID de la carte bancaire existe déjà (actif ou soft-deleted)
             const existingClient = await Client.findOne({
                 where: { idCarteBancaire },
                 paranoid: false
@@ -70,37 +124,40 @@ class ClientController {
                         message: 'Un client avec cet ID de carte bancaire existe déjà'
                     });
                 }
-                // Client soft-deleted : restore() remet deletedAt à null (méthode Sequelize paranoid)
                 await existingClient.restore();
-                existingClient.set({ nomClient, prenomClient, typeContrat });
+                existingClient.set({
+                    nomClient,
+                    prenomClient,
+                    typeContratId: typeResult.typeContratId
+                });
                 await existingClient.save();
+                await existingClient.reload({ include: [ClientController.typeContratInclude] });
                 return res.status(200).json({
                     success: true,
                     message: 'Client réactivé avec succès',
-                    data: existingClient
+                    data: ClientController.formatClient(existingClient)
                 });
             }
 
-            // Créer le client
             const client = await Client.create({
                 nomClient,
                 prenomClient,
                 idCarteBancaire,
-                typeContrat
+                typeContratId: typeResult.typeContratId
             });
+            await client.reload({ include: [ClientController.typeContratInclude] });
 
             return res.status(201).json({
                 success: true,
                 message: 'Client créé avec succès',
-                data: client
+                data: ClientController.formatClient(client)
             });
-
         } catch (error) {
             console.error('Erreur lors de la création du client:', error);
             return res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la création du client',
-                errors: error.errors.map(err => err.message)
+                errors: error.errors?.map((err) => err.message) || [error.message]
             });
         }
     }
@@ -110,14 +167,11 @@ class ClientController {
 
     /**
      * Créer plusieurs clients en une requête (même logique que create : restauration si soft-deleted).
-     * Les tableaux trop gros sont découpés en paquets de BULK_MAX et traités séquentiellement.
      * POST /api/clients/bulk
-     * Body: { "clients": [ { nomClient, prenomClient, idCarteBancaire, typeContrat }, ... ] }
      */
     static async createMany(req, res) {
         try {
             const clients = Array.isArray(req.body) ? req.body : req.body?.clients;
-            const TYPES_CONTRAT = ['Business', 'Platinum', 'Premier'];
 
             if (!Array.isArray(clients) || clients.length === 0) {
                 return res.status(400).json({
@@ -127,21 +181,23 @@ class ClientController {
                 });
             }
 
-            // Validation de toutes les lignes avant tout enregistrement
+            const resolvedClients = [];
             for (const c of clients) {
-                const { nomClient, prenomClient, idCarteBancaire, typeContrat } = c;
-                if (!nomClient || !prenomClient || !idCarteBancaire || !typeContrat) {
+                const { nomClient, prenomClient, idCarteBancaire } = c;
+                if (!nomClient || !prenomClient || !idCarteBancaire) {
                     return res.status(400).json({
                         success: false,
-                        message: 'Chaque client doit avoir nomClient, prenomClient, idCarteBancaire et typeContrat'
+                        message: 'Chaque client doit avoir nomClient, prenomClient, idCarteBancaire et typeContratId (ou typeContrat)'
                     });
                 }
-                if (!TYPES_CONTRAT.includes(typeContrat)) {
-                    return res.status(400).json({
+                const typeResult = await ClientController.resolveAndValidateTypeContrat(c, req.administrateur);
+                if (typeResult.error) {
+                    return res.status(typeResult.error.status).json({
                         success: false,
-                        message: `typeContrat invalide pour ${idCarteBancaire}: doit être Business, Platinum ou Premier`
+                        message: `${typeResult.error.message} (${idCarteBancaire})`
                     });
                 }
+                resolvedClients.push({ ...c, typeContratId: typeResult.typeContratId });
             }
 
             if ((req.administrateur?.role || 'SUPER_ADMIN') === 'AGENT') {
@@ -152,7 +208,7 @@ class ClientController {
                         message: 'Aucun groupe associé à cet agent'
                     });
                 }
-                const cardIds = [...new Set(clients.map(c => c.idCarteBancaire))];
+                const cardIds = [...new Set(resolvedClients.map((c) => c.idCarteBancaire))];
                 const allowedCards = await CarteAutorisee.findAll({
                     where: {
                         groupeId: groupId,
@@ -160,8 +216,8 @@ class ClientController {
                         numeroCarte: { [Op.in]: cardIds }
                     }
                 });
-                const allowedSet = new Set(allowedCards.map(c => c.numeroCarte));
-                const unauthorized = cardIds.filter(c => !allowedSet.has(c));
+                const allowedSet = new Set(allowedCards.map((c) => c.numeroCarte));
+                const unauthorized = cardIds.filter((c) => !allowedSet.has(c));
                 if (unauthorized.length > 0) {
                     return res.status(403).json({
                         success: false,
@@ -176,26 +232,24 @@ class ClientController {
             const allConflicts = [];
             const max = ClientController.BULK_MAX;
 
-            for (let i = 0; i < clients.length; i += max) {
-                const chunk = clients.slice(i, i + max);
-                const ids = chunk.map(c => c.idCarteBancaire);
+            for (let i = 0; i < resolvedClients.length; i += max) {
+                const chunk = resolvedClients.slice(i, i + max);
+                const ids = chunk.map((c) => c.idCarteBancaire);
 
-                // Une seule requête par paquet au lieu de N findOne
                 const existingList = await Client.findAll({
                     where: { idCarteBancaire: { [Op.in]: ids } },
                     paranoid: false
                 });
-                const byCard = new Map(existingList.map(e => [e.idCarteBancaire, e]));
+                const byCard = new Map(existingList.map((e) => [e.idCarteBancaire, e]));
 
                 const created = [];
                 const reactivated = [];
                 const conflicts = [];
                 const seenInChunk = new Set();
-
                 const toReactivate = [];
 
                 for (const c of chunk) {
-                    const { nomClient, prenomClient, idCarteBancaire, typeContrat } = c;
+                    const { nomClient, prenomClient, idCarteBancaire, typeContratId } = c;
                     if (seenInChunk.has(idCarteBancaire)) {
                         conflicts.push({ idCarteBancaire, reason: 'Doublon dans le lot' });
                         continue;
@@ -206,17 +260,16 @@ class ClientController {
 
                     if (existing) {
                         if (existing.deletedAt !== null) {
-                            existing.set({ nomClient, prenomClient, typeContrat });
+                            existing.set({ nomClient, prenomClient, typeContratId });
                             toReactivate.push(existing);
                         } else {
                             conflicts.push({ idCarteBancaire, reason: 'Déjà existant' });
                         }
                     } else {
-                        created.push({ nomClient, prenomClient, idCarteBancaire, typeContrat });
+                        created.push({ nomClient, prenomClient, idCarteBancaire, typeContratId });
                     }
                 }
 
-                // Réactivations en parallèle par lots (évite N await séquentiels)
                 const RESTORE_BATCH = 50;
                 for (let r = 0; r < toReactivate.length; r += RESTORE_BATCH) {
                     const batch = toReactivate.slice(r, r + RESTORE_BATCH);
@@ -261,7 +314,7 @@ class ClientController {
             return res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la création des clients',
-                errors: Array.isArray(error.errors) ? error.errors.map(e => e.message) : [error.message]
+                errors: Array.isArray(error.errors) ? error.errors.map((e) => e.message) : [error.message]
             });
         }
     }
@@ -278,6 +331,7 @@ class ClientController {
             const offset = (pageNum - 1) * limitNum;
 
             const { count, rows: clients } = await Client.findAndCountAll({
+                include: [ClientController.typeContratInclude],
                 order: [['createdAt', 'DESC']],
                 limit: limitNum,
                 offset
@@ -286,7 +340,7 @@ class ClientController {
             return res.status(200).json({
                 success: true,
                 message: 'Clients récupérés avec succès',
-                data: clients,
+                data: clients.map(ClientController.formatClient),
                 meta: {
                     page: pageNum,
                     limit: limitNum,
@@ -299,7 +353,7 @@ class ClientController {
             return res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la récupération des clients',
-                errors: error.errors.map(err => err.message)
+                errors: error.errors?.map((err) => err.message) || [error.message]
             });
         }
     }
@@ -311,22 +365,27 @@ class ClientController {
     static async getById(req, res) {
         try {
             const { id } = req.params;
-            const client = await Client.findByPk(id);
+            const client = await Client.findByPk(id, {
+                include: [ClientController.typeContratInclude]
+            });
+            if (!client) {
+                return res.status(404).json({ success: false, message: 'Client non trouvé' });
+            }
             return res.status(200).json({
                 success: true,
                 message: 'Client récupéré avec succès',
-                data: client
+                data: ClientController.formatClient(client)
             });
         } catch (error) {
             console.error('Erreur lors de la récupération du client:', error);
             return res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la récupération du client',
-                errors: error.errors.map(err => err.message)
+                errors: error.errors?.map((err) => err.message) || [error.message]
             });
         }
     }
-    
+
     /**
      * Mettre à jour un client (seuls les champs fournis et différents sont modifiés)
      * PUT /api/clients/:id
@@ -334,7 +393,7 @@ class ClientController {
     static async update(req, res) {
         try {
             const { id } = req.params;
-            const { nomClient, prenomClient, idCarteBancaire, typeContrat } = req.body;
+            const { nomClient, prenomClient, idCarteBancaire } = req.body;
 
             const existingClient = await Client.findByPk(id);
             if (!existingClient) {
@@ -344,18 +403,19 @@ class ClientController {
                 });
             }
 
-            const typesContratValides = ['Business', 'Platinum', 'Premier'];
-
-            if (typeContrat !== undefined) {
-                if (!typesContratValides.includes(typeContrat)) {
-                    return res.status(400).json({
+            if (req.body.typeContratId !== undefined || req.body.typeContrat !== undefined) {
+                const typeResult = await ClientController.resolveAndValidateTypeContrat(req.body, req.administrateur);
+                if (typeResult.error) {
+                    return res.status(typeResult.error.status).json({
                         success: false,
-                        message: 'Le type de contrat doit être Business, Platinum ou Premier'
+                        message: typeResult.error.message
                     });
                 }
-                if (typeContrat !== existingClient.typeContrat) existingClient.typeContrat = typeContrat;
+                if (typeResult.typeContratId !== existingClient.typeContratId) {
+                    existingClient.typeContratId = typeResult.typeContratId;
+                }
             }
-            
+
             if (nomClient !== undefined && nomClient !== existingClient.nomClient) existingClient.nomClient = nomClient;
             if (prenomClient !== undefined && prenomClient !== existingClient.prenomClient) existingClient.prenomClient = prenomClient;
             if (idCarteBancaire !== undefined && idCarteBancaire !== existingClient.idCarteBancaire) {
@@ -370,18 +430,18 @@ class ClientController {
             }
 
             await existingClient.save();
+            await existingClient.reload({ include: [ClientController.typeContratInclude] });
             return res.status(200).json({
                 success: true,
                 message: 'Client mis à jour avec succès',
-                data: existingClient
+                data: ClientController.formatClient(existingClient)
             });
-
         } catch (error) {
             console.error('Erreur lors de la mise à jour du client:', error);
             return res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la mise à jour du client',
-                errors: error.errors.map(err => err.message)
+                errors: error.errors?.map((err) => err.message) || [error.message]
             });
         }
     }
@@ -411,7 +471,7 @@ class ClientController {
             return res.status(500).json({
                 success: false,
                 message: 'Erreur lors de la suppression du client',
-                errors: error.errors.map(err => err.message)
+                errors: error.errors?.map((err) => err.message) || [error.message]
             });
         }
     }

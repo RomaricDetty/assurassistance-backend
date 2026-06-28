@@ -89,9 +89,24 @@ const swaggerOptions = {
                         nomClient: { type: 'string' },
                         prenomClient: { type: 'string' },
                         idCarteBancaire: { type: 'string' },
-                        typeContrat: { type: 'string' },
+                        typeContratId: { type: 'string', format: 'uuid' },
+                        typeContrat: { type: 'object' },
                         createdAt: { type: 'string', format: 'date-time' },
                         updatedAt: { type: 'string', format: 'date-time' }
+                    }
+                },
+                TypeContrat: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        code: { type: 'string', example: 'Business' },
+                        libelle: { type: 'string', example: 'Contrat Business' },
+                        description: { type: 'string' },
+                        pdfPath: { type: 'string', example: '/uploads/contrats/xxx.pdf' },
+                        pdfUrl: { type: 'string', example: '/uploads/contrats/xxx.pdf' },
+                        pdfFileName: { type: 'string' },
+                        ordre: { type: 'integer' },
+                        isActive: { type: 'boolean' }
                     }
                 }
             },
@@ -121,8 +136,16 @@ const swaggerOptions = {
                 description: 'Gestion des partenaires'
             },
             {
+                name: 'TypesContrat',
+                description: 'Gestion dynamique des types de contrat et PDF associés'
+            },
+            {
                 name: 'GroupesAdmin',
                 description: 'Gestion des groupes d\'agents et cartes autorisées'
+            },
+            {
+                name: 'GroupesPartner',
+                description: 'Consultation des clients par groupe (agents et super admin)'
             },
             {
                 name: '404 Error',
